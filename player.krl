@@ -15,12 +15,11 @@ ruleset player {
                              { "domain": "testing", "type": "playlistStart" },
                              { "domain": "testing", "type": "clearPlaylist" } ] }
 
-    type = "wav"
+    type = "mp3" // "mp3" or "wav"
 
     directory = "/musicbox-notes/notes/" + type + "/"
     
     paths = {
-                "R": null,
                 "C3": directory+"C3." + type,
                 "C#3": directory+"C#3." + type,
                 "D3": directory+"D3." + type, 
@@ -87,7 +86,7 @@ ruleset player {
     getNotes = function() {
        ent:current_beat < ent:songs[ent:playlist[ent:current_song]].length() => 
            ent:songs[ent:playlist[ent:current_song]][ent:current_beat.klog("index") ] | null
-    }
+    };
 
   }
 
@@ -96,8 +95,7 @@ ruleset player {
             pre {
               s = http:get(event:attr("url"))["content"].decode()
             }
-              send_directive("song")
-                with body = s
+              noop()
             always {
               raise explicit event "loadSong"
                 with song = s
@@ -144,10 +142,13 @@ ruleset player {
           
           rule playSong {
               select when testing playSong
-                foreach getNotes().klog("notes") setting (note)
-              pre {}
-              if (not note.isnull() && not paths[note].isnull() && ent:event_count == 0) then
-                playSound:play(paths[note])
+                foreach getNotes().append(null) setting (n)
+              pre {
+                notes = getNotes().klog("notes");
+                file = paths[n]
+              }
+                if (ent:event_count == 0 && not n.isnull() && not file.isnull()) then
+                  playSound:play(file)
               always {
                 ent:current_beat := (ent:event_count != 0) => ent:current_beat | 
                     ((ent:current_beat < ent:songs[ent:playlist[ent:current_song]].length() - 1) => ent:current_beat + ent:beat_skip | 0) on final;
@@ -157,15 +158,26 @@ ruleset player {
 
           rule playBackward {
               select when testing playBackward
-                foreach getNotes().klog("notes") setting (note)
-              pre {}
-              if (not note.isnull() && not paths[note].isnull() && ent:event_count == 0) then
-                playSound:play(paths[note])
+                foreach getNotes().append(null) setting (n)
+              pre {
+                notes = getNotes().klog("notes");
+                file = paths[n]
+              }
+                if (ent:event_count == 0 && not n.isnull() && not file.isnull()) then
+                  playSound:play(file)
               always {
                 ent:current_beat := (ent:event_count != 0) => ent:current_beat | 
-                    ((ent:current_beat > 0) => ent:current_beat - 1 | ent:songs[ent:playlist[ent:current_song]].length() - ent:beat_skip) on final;
+                    ((ent:current_beat > 0) => ent:current_beat - ent:beat_skip | ent:songs[ent:playlist[ent:current_song]].length() - 1) on final;
                 ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final
               } 
+          }
+
+          rule play {
+            select when explicit play
+              foreach event:attr("to_play") setting (note)
+            pre {}
+              if (not note.isnull() && not paths[note].isnull()) then
+                playSound:play(paths[note])
           }
 
           rule nextSong {
