@@ -13,7 +13,8 @@ ruleset player {
                              { "domain": "testing", "type": "nextSong" },
                              { "domain": "testing", "type": "songStart" },
                              { "domain": "testing", "type": "playlistStart" },
-                             { "domain": "testing", "type": "clearPlaylist" } ] }
+                             { "domain": "testing", "type": "clearPlaylist" },
+                             { "domain": "explicit", "type": "openDoor" } ] }
 
     type = "mp3" // "mp3" or "wav"
 
@@ -152,7 +153,9 @@ ruleset player {
               always {
                 ent:current_beat := (ent:event_count != 0) => ent:current_beat | 
                     ((ent:current_beat < ent:songs[ent:playlist[ent:current_song]].length() - 1) => ent:current_beat + ent:beat_skip | 0) on final;
-                ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final
+                ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final;
+                raise explicit event "openDoor"
+                  if (n == "O")
               } 
           }
 
@@ -178,6 +181,15 @@ ruleset player {
             pre {}
               if (not note.isnull() && not paths[note].isnull()) then
                 playSound:play(paths[note])
+          }
+
+          rule openDoor {
+            select when explicit openDoor
+            pre {}
+              send_directive("Open door")
+            always {
+              
+            }
           }
 
           rule nextSong {
