@@ -1,10 +1,10 @@
 ruleset player {
   meta {
-    shares __testing, songs
+    shares __testing, songs, state, song
   }
 
   global {
-    __testing = { "queries": [ { "name": "__testing" },{"name": "songs"} ],
+    __testing = { "queries": [ { "name": "__testing" },{"name": "songs"}, {"name":"state"}  ],
                   "events": [{ "domain": "testing", "type": "importURL", "attrs": ["url"] },
                              { "domain": "testing", "type": "setEventsPerBeat", "attrs": ["events_per_beat"] },
                              { "domain": "testing", "type": "playSong" },
@@ -14,21 +14,26 @@ ruleset player {
                              { "domain": "testing", "type": "playlistStart" },
                              { "domain": "testing", "type": "clearPlaylist" },
                              { "domain": "explicit", "type": "openDoor" } ] }
-    songs = function(){
+    state = function(){
        {
          "songs" : ent:songs ,
          "playlist" : ent:playlist ,
          "current_beat" : ent:current_beat ,
-         "current_song" : ent:current_song
+         "current_song" : ent:current_song ,
+         "events_per_beat" : ent:events_per_beat
        }
+    }
+    songs = function(){ // by title 
+       ent:playlist
     }
     currentSong = function(){
        ent:songs[ent:playlist[ent:current_song]]
     }
 
     getNotes = function() {
-       current_song = currentSong();
-       ent:current_beat < current_song{"song"}.length() => current_song[ent:current_beat /*.klog("index")*/] | null
+       current_song = currentSong();//.klog("currentSong");
+       notes = current_song{"song"};
+       ent:current_beat < notes.length() => notes[ent:current_beat /*.klog("index")*/] | null
     }
 
   }
@@ -79,20 +84,17 @@ ruleset player {
           rule playSong {
               select when testing playSong
                 foreach getNotes().append(null) setting (n)
-              pre {
-                notes = getNotes() //.klog("notes")
-                
-              }
+              pre { /* notes = getNotes().klog("notes") */ 
+a = (ent:current_beat < ent:songs[ent:playlist[ent:current_song]]{"song"}.length() - 1).klog("compare")
+}
               if (ent:event_count == 0 && not n.isnull() ) then
                   playSound:play(n)
-              fired{
-               ent:current_beat := ((ent:current_beat < ent:songs[ent:playlist[ent:current_song]].length() - 1) => ent:current_beat | 0) on final;
-               ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final;
-               raise explicit event "openDoor"
-                  if (n == "O")              
-               }
-              else{
-                ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final
+              always{
+                ent:current_beat := (ent:event_count != 0) => ent:current_beat | 
+                    ((ent:current_beat < ent:songs[ent:playlist[ent:current_song]]{"song"}.length() - 1) => ent:current_beat + 1 | 0) on final;
+                ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final;
+                raise explicit event "openDoor"
+                  if (n == "O")
               } 
           }
 
@@ -100,14 +102,14 @@ ruleset player {
               select when testing playBackward
                 foreach getNotes().append(null) setting (n)
               pre {
-                notes = getNotes().klog("notes")
+                //notes = getNotes().klog("notes")
            
               }
                 if (ent:event_count == 0 && not n.isnull() ) then
                   playSound:play(n)
               always {
                 ent:current_beat := (ent:event_count != 0) => ent:current_beat | 
-                    ((ent:current_beat > 0) => ent:current_beat | ent:songs[ent:playlist[ent:current_song]].length() - 1) on final;
+                    ((ent:current_beat > 0) => ent:current_beat - 1 | ent:songs[ent:playlist[ent:current_song]].length() - 1) on final;
                 ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final
               } 
           }
@@ -136,6 +138,20 @@ ruleset player {
               ent:events_per_beat := currentSong(){"events_per_beat"};
               ent:current_beat := 0;
               ent:current_song := (ent:current_song < ent:playlist.length() - 1) => ent:current_song + 1 | 0
+            }
+          }
+
+          rule playSong {
+            select when testing playSong
+            pre{
+                title = event:attr("title")
+                index = ent:playlist.index(title)
+            } 
+              noop()
+            always{
+              ent:events_per_beat := currentSong(){"events_per_beat"};
+              ent:current_beat := 0;
+              ent:current_song := (index == -1) => ent:current_song | index 
             }
           }
 
