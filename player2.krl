@@ -4,15 +4,18 @@ ruleset player {
   }
 
   global {
-    __testing = { "queries": [ { "name": "__testing" },{"name": "songs"}, {"name":"state"}  ],
+    __testing = { "queries": [ { "name": "song" },{"name": "songs"}, {"name":"state"}  ],
                   "events": [{ "domain": "testing", "type": "importURL", "attrs": ["url"] },
+                             { "domain": "explicit", "type": "loadSong", "attrs": ["song"] },
                              { "domain": "testing", "type": "setEventsPerBeat", "attrs": ["events_per_beat"] },
                              { "domain": "testing", "type": "playSong" },
                              { "domain": "testing", "type": "playBackward" },
                              { "domain": "testing", "type": "nextSong" },
+                             { "domain": "testing", "type": "setSong" , "attrs": ["title"] },
                              { "domain": "testing", "type": "songStart" },
                              { "domain": "testing", "type": "playlistStart" },
                              { "domain": "testing", "type": "clearPlaylist" },
+                             { "domain": "testing", "type": "removeSong" , "attrs":["title"]},
                              { "domain": "explicit", "type": "openDoor" } ] }
     state = function(){
        {
@@ -25,6 +28,9 @@ ruleset player {
     }
     songs = function(){ // by title 
        ent:playlist
+    }
+    song = function(){ // by title 
+       ent:playlist[ent:current_song] + ", " +  ent:events_per_beat
     }
     currentSong = function(){
        ent:songs[ent:playlist[ent:current_song]]
@@ -54,7 +60,8 @@ ruleset player {
           rule loadSong {
             select when explicit loadSong
             pre {
-              song = event:attr("song") // song is a map, <title>:<[notes]>
+              givenSong = event:attr("song")
+              song = givenSong.typeof() == "Map" => givenSong  | givenSong.decode() // song is a map, <title>:<[notes]>
               new_song = {}.put(song.keys()[0], {"events_per_beat": 3}.put("song",song.values()[0]) )
             }
               noop()
@@ -84,36 +91,35 @@ ruleset player {
           rule playSong {
               select when testing playSong
                 foreach getNotes().append(null) setting (n)
-              pre { /* notes = getNotes().klog("notes") */ 
-a = (ent:current_beat < ent:songs[ent:playlist[ent:current_song]]{"song"}.length() - 1).klog("compare")
-}
-              if (ent:event_count == 0 && not n.isnull() ) then
+              pre { 
+                check = ent:event_count == 0 
+              }
+              if ( check && not n.isnull() ) then
                   playSound:play(n)
               always{
-                ent:current_beat := (ent:event_count != 0) => ent:current_beat | 
+                ent:current_beat := ( not check) => ent:current_beat | 
                     ((ent:current_beat < ent:songs[ent:playlist[ent:current_song]]{"song"}.length() - 1) => ent:current_beat + 1 | 0) on final;
                 ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final;
                 raise explicit event "openDoor"
-                  if (n == "O")
+                  if (n == "O" && check)
               } 
           }
-
+/*
           rule playBackward {
               select when testing playBackward
                 foreach getNotes().append(null) setting (n)
               pre {
-                //notes = getNotes().klog("notes")
-           
+                 check = ent:event_count == 0 
               }
-                if (ent:event_count == 0 && not n.isnull() ) then
+                if (check.klog("check") && not n.isnull().klog("isnull") ) then
                   playSound:play(n)
               always {
-                ent:current_beat := (ent:event_count != 0) => ent:current_beat | 
-                    ((ent:current_beat > 0) => ent:current_beat - 1 | ent:songs[ent:playlist[ent:current_song]].length() - 1) on final;
+                ent:current_beat := (not check) => ent:current_beat | 
+                    ((ent:current_beat > 0) => ent:current_beat - 1 | ent:songs[ent:playlist[ent:current_song]]{"song"}.length() - 1) on final;
                 ent:event_count := (ent:event_count < ent:events_per_beat - 1) => ent:event_count + 1 | 0 on final
               } 
-          }
-
+          }*/
+/*
           rule play {
             select when explicit play
               foreach event:attr("to_play") setting (note)
@@ -121,7 +127,7 @@ a = (ent:current_beat < ent:songs[ent:playlist[ent:current_song]]{"song"}.length
               if (not note.isnull()) then
                 playSound:play(note)
           }
-
+*/
         /*  rule openDoor {
             select when explicit openDoor
             pre {}
@@ -134,15 +140,15 @@ a = (ent:current_beat < ent:songs[ent:playlist[ent:current_song]]{"song"}.length
           rule nextSong {
             select when testing nextSong 
               noop()
-            always{
-              ent:events_per_beat := currentSong(){"events_per_beat"};
+            always{        
               ent:current_beat := 0;
-              ent:current_song := (ent:current_song < ent:playlist.length() - 1) => ent:current_song + 1 | 0
+              ent:current_song := (ent:current_song < ent:playlist.length() - 1) => ent:current_song + 1 | 0;
+              ent:events_per_beat := currentSong(){"events_per_beat"}
             }
           }
 
-          rule playSong {
-            select when testing playSong
+          rule setSong {
+            select when testing setSong
             pre{
                 title = event:attr("title")
                 index = ent:playlist.index(title)
@@ -152,6 +158,25 @@ a = (ent:current_beat < ent:songs[ent:playlist[ent:current_song]]{"song"}.length
               ent:events_per_beat := currentSong(){"events_per_beat"};
               ent:current_beat := 0;
               ent:current_song := (index == -1) => ent:current_song | index 
+            }
+          }
+
+          rule removeSong {
+            select when testing removeSong
+            pre{
+                title = event:attr("title")
+                index = ent:playlist.index(title)
+                newPlaylist = ent:playlist.splice(index,1)
+                newSongs = ent:songs.delete([title])
+            } 
+              noop()
+            always{
+              ent:songs := newSongs;
+              ent:playlist := newPlaylist;
+              ent:current_beat := 0;
+              ent:current_song := 0;
+              ent:event_count := 0;
+              ent:events_per_beat := currentSong(){"events_per_beat"}
             }
           }
 
